@@ -1,0 +1,692 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Live Ticker</title>
+<style>
+  :root {
+    --bg: #0E1613;
+    --panel: #16211B;
+    --panel-strong: #1C2921;
+    --ink: #EAE7DA;
+    --ink-soft: #AEB6A9;
+    --ink-faint: #6F766D;
+    --line: #26362F;
+    --teal: #3E9C82;
+    --gold: #D9A44C;
+    --gold-bg: #2A2313;
+    --green: #34C57F;
+    --red: #E5675A;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .num {
+    font-family: ui-monospace, "SFMono-Regular", "Cascadia Mono", Consolas, monospace;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .page {
+    max-width: 1360px;
+    margin: 0 auto;
+    padding: 28px 20px 60px;
+  }
+
+  /* Top bar */
+
+  .topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 20px;
+  }
+
+  .brand {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--ink-soft);
+    letter-spacing: 0.02em;
+  }
+
+  .sim-badge {
+    font-size: 11px;
+    font-family: ui-monospace, monospace;
+    color: var(--gold);
+    background: var(--gold-bg);
+    border: 1px solid rgba(217, 164, 76, 0.35);
+    border-radius: 999px;
+    padding: 4px 10px;
+    white-space: nowrap;
+  }
+
+  /* Symbol picker */
+
+  .picker-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-bottom: 8px;
+  }
+
+  .picker-label {
+    font-size: 12px;
+    color: var(--ink-faint);
+    margin-right: 2px;
+  }
+
+  .picker-chip {
+    font-family: ui-monospace, monospace;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--ink-soft);
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 7px;
+    padding: 7px 13px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .picker-chip .dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--line);
+  }
+
+  .picker-chip.open {
+    color: var(--bg);
+    background: var(--teal);
+    border-color: var(--teal);
+  }
+  .picker-chip.open .dot { background: var(--bg); }
+
+  .picker-count {
+    font-size: 12px;
+    color: var(--ink-faint);
+    margin-left: auto;
+  }
+
+  .cap-note {
+    font-size: 12.5px;
+    color: var(--gold);
+    background: var(--gold-bg);
+    border: 1px solid rgba(217, 164, 76, 0.35);
+    border-radius: 6px;
+    padding: 8px 12px;
+    margin: 0 0 16px;
+    display: none;
+  }
+  .cap-note.show { display: block; }
+
+  /* Grid */
+
+  .grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 16px;
+    align-items: stretch;
+  }
+
+  @media (max-width: 900px) {
+    .grid { grid-template-columns: repeat(2, 1fr) !important; }
+  }
+  @media (max-width: 620px) {
+    .grid { grid-template-columns: 1fr !important; }
+  }
+
+  .empty-state {
+    grid-column: 1 / -1;
+    text-align: center;
+    color: var(--ink-faint);
+    font-size: 14px;
+    padding: 60px 20px;
+    border: 1px dashed var(--line);
+    border-radius: 10px;
+  }
+
+  /* Pane */
+
+  .pane {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 16px 16px 4px;
+    min-width: 0;
+  }
+
+  /* Pushes the chart+stats block down so panes in a row line up
+     regardless of whether a dividend banner is present. */
+  .pane-chart-wrap { margin-top: auto; }
+  .pane-asof { margin-bottom: 10px; }
+
+  .pane-close {
+    position: absolute;
+    top: 10px; right: 10px;
+    background: var(--panel-strong);
+    border: 1px solid var(--line);
+    color: var(--ink-faint);
+    width: 22px; height: 22px;
+    border-radius: 6px;
+    font-size: 13px;
+    line-height: 1;
+    cursor: pointer;
+  }
+  .pane-close:hover { color: var(--ink); border-color: var(--ink-faint); }
+
+  .pane-exchange-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 11px;
+    color: var(--ink-faint);
+    margin: 0 40px 10px 0;
+  }
+
+  .pane-status { display: flex; align-items: center; gap: 5px; }
+  .status-dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--ink-faint);
+  }
+  .status-dot.live { background: var(--green); }
+  .status-dot.down { background: var(--red); }
+
+  .pane-name {
+    font-size: 15px;
+    font-weight: 700;
+    margin: 0 0 2px;
+  }
+  .pane-name .symbol {
+    font-family: ui-monospace, monospace;
+    font-size: 11.5px;
+    color: var(--ink-faint);
+    margin-left: 5px;
+    font-weight: 500;
+  }
+
+  .pane-price-row {
+    display: flex;
+    align-items: baseline;
+    gap: 9px;
+    flex-wrap: wrap;
+    margin-top: 6px;
+  }
+  .pane-price { font-size: 24px; font-weight: 700; letter-spacing: -0.01em; }
+
+  .change-pill { font-size: 12.5px; font-weight: 600; padding: 2px 7px; border-radius: 5px; }
+  .change-pill.up { color: var(--green); background: rgba(52, 197, 127, 0.12); }
+  .change-pill.down { color: var(--red); background: rgba(229, 103, 90, 0.12); }
+  .change-pill.flat { color: var(--ink-soft); background: rgba(174, 182, 169, 0.1); }
+
+  .pane-asof { font-size: 11px; color: var(--ink-faint); margin: 4px 0 0; }
+
+  .pane-dividend {
+    display: none;
+    background: var(--gold-bg);
+    border: 1px solid rgba(217, 164, 76, 0.3);
+    border-radius: 6px;
+    padding: 7px 10px;
+    margin: 10px 0;
+    font-size: 11.5px;
+    color: var(--ink-soft);
+  }
+  .pane-dividend .label {
+    font-weight: 700;
+    color: var(--gold);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-right: 5px;
+  }
+
+  .pane-chart-wrap {
+    background: var(--panel-strong);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 6px;
+  }
+  .pane-chart { display: block; width: 100%; height: 110px; }
+
+  .pane-stats {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px 12px;
+    margin: 12px 0 14px;
+  }
+  .pane-stat .stat-label {
+    font-size: 10px;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    margin-bottom: 2px;
+  }
+  .pane-stat .stat-value { font-size: 12.5px; font-weight: 500; color: var(--ink); }
+
+  footer {
+    margin-top: 26px;
+    font-size: 12px;
+    color: var(--ink-faint);
+    line-height: 1.6;
+  }
+  footer code {
+    font-family: ui-monospace, monospace;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 1px 5px;
+  }
+</style>
+</head>
+<body>
+
+<div class="page">
+
+  <div class="topbar">
+    <span class="brand">Market Integration &middot; Live Ticker</span>
+    <span class="sim-badge">Simulated data, not a live GSE feed</span>
+  </div>
+
+  <div class="picker-row" id="pickerRow">
+    <span class="picker-label">Click a symbol to open or close its view:</span>
+    <span class="picker-count" id="pickerCount"></span>
+  </div>
+  <div class="cap-note" id="capNote">Max 6 views at once, close one to open another.</div>
+
+  <div class="grid" id="grid">
+    <div class="empty-state">Nothing open. Click a symbol above to add it.</div>
+  </div>
+
+  <footer>
+    Live over <code>/ws/market</code>, the same feed the rest of the pipeline uses. Each pane shows a curated set of
+    fields, price, change, day range, volume, market cap; everything except price, bid/ask, day range, and volume is
+    a generated placeholder, there is no real GSE fundamentals data behind it yet.
+  </footer>
+
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  const MAX_PANES = 6;
+  const HISTORY_LIMIT = 720; // ~6 minutes at 0.5s ticks
+  const GRID_COLS = { 1: 1, 2: 2, 3: 3, 4: 2, 5: 3, 6: 3 };
+
+  const state = {};       // symbol -> latest MarketData
+  const history = {};     // symbol -> [{t, price}]
+  const knownSymbols = []; // insertion-ordered list of every symbol ever seen
+  const openSymbols = new Set();
+  const paneEls = {};     // symbol -> cached DOM refs for its pane
+
+  const el = {
+    pickerRow: document.getElementById("pickerRow"),
+    pickerCount: document.getElementById("pickerCount"),
+    capNote: document.getElementById("capNote"),
+    grid: document.getElementById("grid"),
+  };
+
+  function fmtMoney(n) {
+    return "GH₵" + Number(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+  function fmtNum(n) {
+    return Number(n).toLocaleString();
+  }
+  function fmtLarge(n) {
+    const abs = Math.abs(n);
+    if (abs >= 1e12) return (n / 1e12).toFixed(2) + "T";
+    if (abs >= 1e9) return (n / 1e9).toFixed(2) + "B";
+    if (abs >= 1e6) return (n / 1e6).toFixed(2) + "M";
+    if (abs >= 1e3) return (n / 1e3).toFixed(2) + "K";
+    return String(n);
+  }
+  function fmtTime(ts) {
+    return new Date(ts).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  }
+  function secondsAgo(ts) {
+    const s = Math.max(0, Math.round((Date.now() - ts) / 1000));
+    if (s < 1) return "just now";
+    if (s === 1) return "1 second ago";
+    return s + " seconds ago";
+  }
+
+  function showCapNote() {
+    el.capNote.classList.add("show");
+    clearTimeout(showCapNote._t);
+    showCapNote._t = setTimeout(function () { el.capNote.classList.remove("show"); }, 2500);
+  }
+
+  function togglePane(sym) {
+    if (openSymbols.has(sym)) {
+      openSymbols.delete(sym);
+      buildGrid();
+    } else if (openSymbols.size >= MAX_PANES) {
+      showCapNote();
+    } else {
+      openSymbols.add(sym);
+      buildGrid();
+    }
+  }
+
+  function buildPicker() {
+    el.pickerRow.querySelectorAll(".picker-chip").forEach(function (c) { c.remove(); });
+    knownSymbols.forEach(function (sym) {
+      const chip = document.createElement("button");
+      chip.className = "picker-chip" + (openSymbols.has(sym) ? " open" : "");
+      chip.innerHTML = '<span class="dot"></span>' + sym;
+      chip.addEventListener("click", function () { togglePane(sym); });
+      el.pickerRow.insertBefore(chip, el.pickerCount);
+    });
+    el.pickerCount.textContent = openSymbols.size + " / " + MAX_PANES + " open";
+  }
+
+  function statEl(label) {
+    const wrap = document.createElement("div");
+    wrap.className = "pane-stat";
+    const l = document.createElement("div");
+    l.className = "stat-label";
+    l.textContent = label;
+    const v = document.createElement("div");
+    v.className = "stat-value num";
+    wrap.appendChild(l);
+    wrap.appendChild(v);
+    return { wrap: wrap, value: v };
+  }
+
+  function createPane(sym) {
+    const root = document.createElement("div");
+    root.className = "pane";
+
+    const close = document.createElement("button");
+    close.className = "pane-close";
+    close.textContent = "×";
+    close.title = "Close";
+    close.addEventListener("click", function () { togglePane(sym); });
+    root.appendChild(close);
+
+    const exchangeRow = document.createElement("div");
+    exchangeRow.className = "pane-exchange-row";
+    const exchangeLabel = document.createElement("span");
+    exchangeLabel.textContent = "Connecting…";
+    const status = document.createElement("span");
+    status.className = "pane-status";
+    status.innerHTML = '<span class="status-dot"></span><span class="status-text">Live</span>';
+    exchangeRow.appendChild(exchangeLabel);
+    exchangeRow.appendChild(status);
+    root.appendChild(exchangeRow);
+
+    const name = document.createElement("div");
+    name.className = "pane-name";
+    name.innerHTML = '<span class="name-text">—</span><span class="symbol">' + sym + "</span>";
+    root.appendChild(name);
+
+    const priceRow = document.createElement("div");
+    priceRow.className = "pane-price-row";
+    const price = document.createElement("span");
+    price.className = "pane-price num";
+    price.textContent = "—";
+    const change = document.createElement("span");
+    change.className = "change-pill num";
+    priceRow.appendChild(price);
+    priceRow.appendChild(change);
+    root.appendChild(priceRow);
+
+    const asOf = document.createElement("p");
+    asOf.className = "pane-asof";
+    asOf.textContent = "Waiting for the first update…";
+    root.appendChild(asOf);
+
+    const dividend = document.createElement("div");
+    dividend.className = "pane-dividend";
+    dividend.innerHTML = '<span class="label">Dividend</span><span class="dividend-text"></span>';
+    root.appendChild(dividend);
+
+    const chartWrap = document.createElement("div");
+    chartWrap.className = "pane-chart-wrap";
+    const canvas = document.createElement("canvas");
+    canvas.className = "pane-chart";
+    chartWrap.appendChild(canvas);
+    root.appendChild(chartWrap);
+
+    const statsGrid = document.createElement("div");
+    statsGrid.className = "pane-stats";
+    const stats = {
+      previousClose: statEl("Previous Close"),
+      dayRange: statEl("Day's Range"),
+      volume: statEl("Volume"),
+      marketCap: statEl("Market Cap"),
+    };
+    Object.keys(stats).forEach(function (k) { statsGrid.appendChild(stats[k].wrap); });
+    root.appendChild(statsGrid);
+
+    return {
+      root: root,
+      exchangeLabel: exchangeLabel,
+      statusDot: status.querySelector(".status-dot"),
+      statusText: status.querySelector(".status-text"),
+      nameText: name.querySelector(".name-text"),
+      price: price,
+      change: change,
+      asOf: asOf,
+      dividend: dividend,
+      dividendText: dividend.querySelector(".dividend-text"),
+      canvas: canvas,
+      ctx: canvas.getContext("2d"),
+      stats: stats,
+    };
+  }
+
+  function buildGrid() {
+    el.grid.innerHTML = "";
+    Object.keys(paneEls).forEach(function (k) { delete paneEls[k]; });
+
+    if (openSymbols.size === 0) {
+      const empty = document.createElement("div");
+      empty.className = "empty-state";
+      empty.textContent = "Nothing open. Click a symbol above to add it.";
+      el.grid.appendChild(empty);
+    } else {
+      el.grid.style.gridTemplateColumns = "repeat(" + (GRID_COLS[openSymbols.size] || 3) + ", 1fr)";
+      knownSymbols.filter(function (s) { return openSymbols.has(s); }).forEach(function (sym) {
+        const pane = createPane(sym);
+        el.grid.appendChild(pane.root);
+        paneEls[sym] = pane;
+        if (state[sym]) updatePane(sym);
+      });
+    }
+
+    buildPicker();
+  }
+
+  function updatePane(sym) {
+    const p = paneEls[sym];
+    const d = state[sym];
+    if (!p || !d) return;
+
+    p.exchangeLabel.textContent = d.exchange_label;
+    p.nameText.textContent = d.name;
+
+    p.price.textContent = fmtMoney(d.price);
+
+    const diff = d.price - d.previous_close;
+    const pct = (diff / d.previous_close) * 100;
+    const dir = diff > 0.004 ? "up" : diff < -0.004 ? "down" : "flat";
+    const arrow = dir === "up" ? "▲" : dir === "down" ? "▼" : "–";
+    p.change.textContent = arrow + " " + Math.abs(diff).toFixed(2) + " (" + Math.abs(pct).toFixed(2) + "%)";
+    p.change.className = "change-pill num " + dir;
+    p.statusDot.className = "status-dot live" + (dir === "down" ? " down" : "");
+
+    p.asOf.textContent = "As of " + fmtTime(d._receivedAt) + " · updated " + secondsAgo(d._receivedAt);
+
+    if (d.dividend_announcement) {
+      p.dividend.style.display = "block";
+      p.dividendText.textContent = d.dividend_announcement;
+    } else {
+      p.dividend.style.display = "none";
+    }
+
+    p.stats.previousClose.value.textContent = fmtMoney(d.previous_close);
+    p.stats.dayRange.value.textContent = fmtMoney(d.day_low) + " – " + fmtMoney(d.day_high);
+    p.stats.volume.value.textContent = fmtNum(d.volume);
+    p.stats.marketCap.value.textContent = fmtLarge(d.market_cap);
+
+    drawChart(sym);
+  }
+
+  function drawChart(sym) {
+    const p = paneEls[sym];
+    const d = state[sym];
+    const points = history[sym] || [];
+    if (!p || !d || points.length < 2) return;
+
+    const ctx = p.ctx;
+    const canvas = p.canvas;
+    const dpr = window.devicePixelRatio || 1;
+    const cssWidth = canvas.clientWidth;
+    const cssHeight = canvas.clientHeight || 110;
+    if (!cssWidth) return;
+    canvas.width = cssWidth * dpr;
+    canvas.height = cssHeight * dpr;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, cssWidth, cssHeight);
+
+    const padL = 4, padR = 46, padT = 8, padB = 14;
+    const plotW = cssWidth - padL - padR;
+    const plotH = cssHeight - padT - padB;
+
+    const prices = points.map(function (pt) { return pt.price; });
+    const prevClose = d.previous_close;
+    let min = Math.min.apply(null, prices.concat([prevClose]));
+    let max = Math.max.apply(null, prices.concat([prevClose]));
+    const pad = (max - min) * 0.15 || 1;
+    min -= pad; max += pad;
+
+    function xAt(i) { return padL + (i / (points.length - 1)) * plotW; }
+    function yAt(v) { return padT + (1 - (v - min) / (max - min)) * plotH; }
+
+    const isUp = points[points.length - 1].price >= prevClose;
+    const lineColor = isUp ? "#34C57F" : "#E5675A";
+
+    const pcY = yAt(prevClose);
+    ctx.beginPath();
+    ctx.setLineDash([3, 3]);
+    ctx.strokeStyle = "rgba(174, 182, 169, 0.45)";
+    ctx.lineWidth = 1;
+    ctx.moveTo(padL, pcY);
+    ctx.lineTo(cssWidth - padR, pcY);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    const grad = ctx.createLinearGradient(0, padT, 0, padT + plotH);
+    grad.addColorStop(0, isUp ? "rgba(52,197,127,0.28)" : "rgba(229,103,90,0.28)");
+    grad.addColorStop(1, isUp ? "rgba(52,197,127,0.0)" : "rgba(229,103,90,0.0)");
+    ctx.beginPath();
+    ctx.moveTo(xAt(0), yAt(points[0].price));
+    points.forEach(function (pt, i) { ctx.lineTo(xAt(i), yAt(pt.price)); });
+    ctx.lineTo(xAt(points.length - 1), padT + plotH);
+    ctx.lineTo(xAt(0), padT + plotH);
+    ctx.closePath();
+    ctx.fillStyle = grad;
+    ctx.fill();
+
+    ctx.beginPath();
+    ctx.moveTo(xAt(0), yAt(points[0].price));
+    points.forEach(function (pt, i) { ctx.lineTo(xAt(i), yAt(pt.price)); });
+    ctx.strokeStyle = lineColor;
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    const lastX = xAt(points.length - 1);
+    const lastY = yAt(points[points.length - 1].price);
+    ctx.beginPath();
+    ctx.arc(lastX, lastY, 3, 0, Math.PI * 2);
+    ctx.fillStyle = lineColor;
+    ctx.fill();
+
+    ctx.font = "9.5px ui-monospace, monospace";
+    const labelText = points[points.length - 1].price.toFixed(2);
+    const labelW = ctx.measureText(labelText).width + 10;
+    ctx.fillStyle = lineColor;
+    ctx.fillRect(cssWidth - padR + 4, lastY - 8, labelW, 15);
+    ctx.fillStyle = "#0E1613";
+    ctx.fillText(labelText, cssWidth - padR + 9, lastY + 3);
+  }
+
+  function ingest(d) {
+    d._receivedAt = Date.now();
+    state[d.symbol] = d;
+    if (!history[d.symbol]) history[d.symbol] = [];
+    history[d.symbol].push({ t: d._receivedAt, price: d.price });
+    if (history[d.symbol].length > HISTORY_LIMIT) history[d.symbol].shift();
+
+    const isNew = knownSymbols.indexOf(d.symbol) === -1;
+    if (isNew) knownSymbols.push(d.symbol);
+
+    if (isNew && openSymbols.size < MAX_PANES) {
+      openSymbols.add(d.symbol);
+      buildGrid();
+    } else if (openSymbols.has(d.symbol)) {
+      updatePane(d.symbol);
+    } else if (isNew) {
+      buildPicker();
+    }
+  }
+
+  function connect() {
+    const proto = location.protocol === "https:" ? "wss" : "ws";
+    const ws = new WebSocket(proto + "://" + location.host + "/ws/market");
+
+    ws.onmessage = function (evt) {
+      const msg = JSON.parse(evt.data);
+      if (msg.type === "initial_state") {
+        Object.values(msg.data).forEach(ingest);
+      } else if (msg.symbol) {
+        ingest(msg);
+      }
+    };
+
+    ws.onclose = function () {
+      setTimeout(connect, 2000);
+    };
+
+    ws.onerror = function () {
+      ws.close();
+    };
+  }
+
+  let resizeTimer = null;
+  window.addEventListener("resize", function () {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(function () {
+      openSymbols.forEach(drawChart);
+    }, 120);
+  });
+
+  setInterval(function () {
+    openSymbols.forEach(function (sym) {
+      const p = paneEls[sym], d = state[sym];
+      if (p && d) p.asOf.textContent = "As of " + fmtTime(d._receivedAt) + " · updated " + secondsAgo(d._receivedAt);
+    });
+  }, 1000);
+
+  connect();
+})();
+</script>
+
+</body>
+</html>
