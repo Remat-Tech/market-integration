@@ -14,8 +14,8 @@ Two kinds of code:
 
   instrument  "<SYMBOL> <CODE>", for a symbol of one of the code's asset
               classes. The route has a {symbol} placeholder.
-  screen      "<CODE>" alone. (None yet: EQS, ECO, FXC and the other
-              tabs register theirs as they gain one.)
+  screen      "<CODE>" alone, e.g. EQS for the screener. The other tabs
+              register theirs as they gain one.
 
 Anything else falls back to the instrument search.
 """
@@ -56,6 +56,10 @@ COMMANDS: dict[str, Command] = {c.code: c for c in (
             "/stock/{symbol}#description", ("equity",)),
     Command("GP", "Price chart with indicators", "instrument",
             "/stock/{symbol}", ("equity",)),
+    Command("EQS", "Stock screener", "screen", "/screener"),
+    Command("GC", "Government yield curve", "screen", "/yield-curve"),
+    Command("AUC", "T-bill and bond auctions", "screen", "/auctions"),
+    Command("ECO", "Economic calendar and policy rate", "screen", "/calendar"),
 )}
 
 
@@ -109,6 +113,8 @@ def resolve(
         screens = [c for c in commands.values() if c.kind == "screen" and c.code.startswith(words[0])]
         if screens:
             exact = commands.get(words[0])
+            # The exact code first, so the bar highlights it (GC before GCX).
+            screens.sort(key=lambda c: c is not exact)
             return {
                 "kind": "screen",
                 "options": [_option(c) for c in screens],

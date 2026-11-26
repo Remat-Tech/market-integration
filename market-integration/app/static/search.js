@@ -1,7 +1,7 @@
 /*
  * Header search bar with autocomplete, over GET /search. Shared by
  * /ticker, /stock/{symbol} and /screener; styles itself with the page's
- * colour variables. Loading the script also installs the Ctrl K command
+ * colour variables. Loading the script also installs the Ctrl K / Alt K command
  * bar (function codes such as "MTNGH DES"; see "command bar" below and
  * docs/commands.md).
  *
@@ -725,7 +725,8 @@
 
   // ------------------------------------------------------------ command bar
 
-  // Ctrl K (Cmd K on a Mac) opens the command bar on any page that loads
+  // Ctrl K (Cmd K on a Mac) or Alt K (Option K; the one to use in
+  // Firefox) opens the command bar on any page that loads
   // this script, which every page does (#100); the header search itself
   // only appears where a page calls mount(). Function codes jump to a screen, like the
   // Bloomberg Terminal's: "MTNGH DES" opens MTN Ghana's description,
@@ -861,6 +862,15 @@
         return;
       }
       items.forEach(function (r, i) {
+        // A row whose section differs from the one before starts a new
+        // group, e.g. instruments listed under a screen code's match.
+        if (i > 0 && r.section && r.section !== items[i - 1].section) {
+          const head = document.createElement("li");
+          head.className = "mcmd-group";
+          head.setAttribute("role", "presentation");
+          head.textContent = r.section;
+          list.appendChild(head);
+        }
         const li = document.createElement("li");
         li.className = "mcmd-opt";
         li.id = listId + "-" + i;
@@ -915,20 +925,39 @@
       const signal = controller.signal;
       pending = getJson("/commands/resolve?q=" + encodeURIComponent(q), signal).then(function (res) {
         if (mine !== seq) return;
-        if (res.kind === "instrument" || res.kind === "screen") {
+        const instrumentRows = function (found) {
+          return found.map(function (r) {
+            return { section: "Instruments", code: r.symbol, title: r.name, badge: BADGE[r.asset_class] || r.asset_class,
+                     url: detailUrl(r), complete: r.symbol };
+          });
+        };
+        if (res.kind === "instrument") {
           target = res.url;
-          const heading = res.kind === "instrument" ? res.symbol + " · " + res.name : "Screens";
-          render(heading, res.options.map(function (o) {
-            const full = res.kind === "instrument" ? res.symbol + " " + o.code : o.code;
+          render(res.symbol + " · " + res.name, res.options.map(function (o) {
+            const full = res.symbol + " " + o.code;
             return { code: full, title: o.title, badge: "", url: o.url, complete: full };
           }), "");
           return;
         }
+        if (res.kind === "screen") {
+          // The screen codes first, then the instruments the same text
+          // finds, so "GC" offers the yield curve and GCB Bank.
+          target = res.url;
+          const screens = res.options.map(function (o) {
+            return { section: "Screens", code: o.code, title: o.title, badge: "", url: o.url, complete: o.code };
+          });
+          render("Screens", screens, "");
+          return getJson("/search?limit=" + CMD_SEARCH_LIMIT + "&q=" + encodeURIComponent(q), signal).then(function (found) {
+            if (mine !== seq || !found.length) return;
+            const keep = active;
+            render("Screens", screens.concat(instrumentRows(found)), "");
+            setActive(keep < 0 ? 0 : keep);
+          }).catch(function () { /* the screen rows stand on their own */ });
+        }
         return getJson("/search?limit=" + CMD_SEARCH_LIMIT + "&q=" + encodeURIComponent(res.q), signal).then(function (found) {
           if (mine !== seq) return;
-          render(found.length ? "Instruments" : "", found.map(function (r) {
-            return { code: r.symbol, title: r.name, badge: BADGE[r.asset_class] || r.asset_class, url: detailUrl(r), complete: r.symbol };
-          }), "No function code or instrument matches “" + q + "”");
+          render(found.length ? "Instruments" : "", instrumentRows(found),
+                 "No function code or instrument matches “" + q + "”");
         });
       }).catch(function (err) {
         if (err.name === "AbortError" || mine !== seq) return;
@@ -987,9 +1016,10 @@
       } else if (e.key === "Enter") {
         e.preventDefault();
         pending.then(function () {
-          // An exact code wins; otherwise the highlighted row.
-          if (target) go(null);
-          else if (rows[active]) go(rows[active]);
+          // The highlighted row. An exact code is listed first, so it is
+          // highlighted until the user moves; with no rows, the code itself.
+          if (rows[active] && rows[active].url) go(rows[active]);
+          else if (target) go(null);
         });
       } else if (e.key === "Escape") {
         e.preventDefault();
@@ -1010,12 +1040,24 @@
     if (commandBar.isOpen()) commandBar.close(); else commandBar.open();
   }
 
+  // Ctrl K (Cmd K) as in Chrome and Edge, and Alt K (Option K) because
+  // Firefox keeps Ctrl K for its own search bar. Alt K is matched by the
+  // physical key: on a Mac, Option K types "˚", not "k".
+  function isCommandBarKey(e) {
+    if (e.shiftKey) return false;
+    const k = e.key === "k" || e.key === "K" || e.code === "KeyK";
+    if ((e.ctrlKey || e.metaKey) && !e.altKey) return k;
+    if (e.altKey && !e.ctrlKey && !e.metaKey) return e.code === "KeyK";
+    return false;
+  }
+
+  // Capture phase, so a page's own key handlers can't swallow it first.
   document.addEventListener("keydown", function (e) {
-    if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && (e.key === "k" || e.key === "K")) {
-      e.preventDefault();
-      toggleCommandBar();
-    }
-  });
+    if (!isCommandBarKey(e)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    toggleCommandBar();
+  }, true);
 
   window.MarketSearch = {
     mount: mount,

@@ -60,7 +60,68 @@ def test_codes_only_apply_to_their_asset_classes():
     assert resolve("GHGGOG069931", INSTRUMENTS)["kind"] == "search"
 
 
-@pytest.mark.parametrize("text", ["", "   ", "fan milk", "NOPE", "NOPE DES", "DES", "GP"])
+@pytest.mark.parametrize("text", ["eqs", "EQS", "  Eqs "])
+def test_eqs_opens_the_screener(text):
+    assert resolve(text, INSTRUMENTS) == {
+        "kind": "screen",
+        "options": [{"code": "EQS", "title": "Stock screener", "url": "/screener"}],
+        "url": "/screener",
+    }
+
+
+def test_a_partial_screen_code_lists_without_going():
+    result = resolve("EQ", INSTRUMENTS)
+    assert result["kind"] == "screen" and _codes(result) == ["EQS"] and result["url"] is None
+
+
+@pytest.mark.parametrize("text", ["gc", "GC", " Gc "])
+def test_gc_opens_the_yield_curve(text):
+    result = resolve(text, INSTRUMENTS)
+    assert result["kind"] == "screen" and result["url"] == "/yield-curve"
+    assert result["options"][0] == {"code": "GC", "title": "Government yield curve", "url": "/yield-curve"}
+
+
+@pytest.mark.parametrize("text", ["auc", "AUC", " Auc "])
+def test_auc_opens_the_auctions(text):
+    assert resolve(text, INSTRUMENTS) == {
+        "kind": "screen",
+        "options": [{"code": "AUC", "title": "T-bill and bond auctions", "url": "/auctions"}],
+        "url": "/auctions",
+    }
+
+
+def test_a_partial_auc_lists_it_without_going():
+    result = resolve("AU", INSTRUMENTS)
+    assert result["kind"] == "screen" and _codes(result) == ["AUC"] and result["url"] is None
+
+
+@pytest.mark.parametrize("text", ["eco", "ECO", " Eco "])
+def test_eco_opens_the_economic_calendar(text):
+    assert resolve(text, INSTRUMENTS) == {
+        "kind": "screen",
+        "options": [{"code": "ECO", "title": "Economic calendar and policy rate", "url": "/calendar"}],
+        "url": "/calendar",
+    }
+
+
+def test_e_lists_both_e_codes_in_table_order():
+    result = resolve("E", INSTRUMENTS)
+    assert _codes(result) == ["EQS", "ECO"] and result["url"] is None
+
+
+def test_gc_does_not_take_over_gcb():
+    # Symbols match whole: GC is the yield curve, GCB is still GCB Bank,
+    # with its own codes.
+    result = resolve("GCB", INSTRUMENTS)
+    assert result["kind"] == "instrument" and result["symbol"] == "GCB"
+    assert resolve("GCB GP", INSTRUMENTS)["url"] == "/stock/GCB"
+
+
+def test_a_screen_code_after_a_symbol_is_not_an_instrument_code():
+    assert resolve("MTNGH EQS", INSTRUMENTS)["kind"] == "search"
+
+
+@pytest.mark.parametrize("text", ["", "   ", "fan milk", "NOPE", "NOPE DES", "DES", "GP", "EQS SCREEN", "GC CURVE", "AUC BILLS", "ECO CPI"])
 def test_anything_else_falls_back_to_search(text):
     assert resolve(text, INSTRUMENTS) == {"kind": "search", "q": " ".join(text.split())}
 
@@ -75,6 +136,10 @@ def test_screen_codes_stand_alone():
     }
     partial = resolve("E", INSTRUMENTS, commands)
     assert _codes(partial) == ["EQS", "ECO"] and partial["url"] is None
+    # An exact code is listed first, whatever the table order.
+    longer_first = dict(commands, GCX=Command("GCX", "GCX", "screen", "/commodities"))
+    longer_first = {"GCX": longer_first["GCX"], **{k: v for k, v in longer_first.items() if k != "GCX"}}
+    assert _codes(resolve("GC", INSTRUMENTS, longer_first)) == ["GC", "GCX"]
     # A symbol wins over a screen code of the same spelling.
     assert resolve("GCB", INSTRUMENTS, dict(commands, GCB=Command("GCB", "x", "screen", "/x")))["kind"] == "instrument"
 
@@ -117,10 +182,16 @@ def test_resolve_endpoint_uses_the_instrument_master(client):
     assert client.get("/commands/resolve").json() == {"kind": "search", "q": ""}
 
 
-@pytest.mark.parametrize("code", list(COMMANDS))
+@pytest.mark.parametrize("code", [c for c, cmd in COMMANDS.items() if cmd.kind == "instrument"])
 def test_every_instrument_code_opens_a_page_for_a_listed_equity(client, code):
     url = client.get("/commands/resolve", params={"q": f"MTNGH {code}"}).json()["url"]
     assert client.get(url.split("#")[0]).status_code == 200
+
+
+@pytest.mark.parametrize("code", [c for c, cmd in COMMANDS.items() if cmd.kind == "screen"])
+def test_every_screen_code_opens_a_page(client, code):
+    url = client.get("/commands/resolve", params={"q": code}).json()["url"]
+    assert url and client.get(url.split("#")[0]).status_code == 200
 
 
 @pytest.mark.parametrize("path", [

@@ -1,13 +1,15 @@
 # Command bar and function codes
 
-Press **Ctrl K** (Cmd K on a Mac) to open the command bar on any page.
+Press **Ctrl K** or **Alt K** (Cmd K or Option K on a Mac) to open the
+command bar on any page. In Firefox, use **Alt K**: Firefox keeps
+Ctrl K for its own search bar.
 Type a short function code, like those on the Bloomberg Terminal, to
 jump straight to a screen (#100).
 
 The bar is installed by `app/static/search.js`, which every page loads.
 A new page must load it too
 (`<script src="/static/search.js"></script>`), or the browser's own
-Ctrl K (the address bar) takes over there. `tests/test_commands.py`
+Ctrl K (its search bar) takes over there, and Alt K does nothing. `tests/test_commands.py`
 lists the pages it checks.
 
 | You type | What happens |
@@ -15,6 +17,10 @@ lists the pages it checks.
 | `MTNGH DES` | Opens MTN Ghana's Description page |
 | `MTNGH GP` | Opens MTN Ghana's price chart |
 | `MTNGH` or `MTNGH D` | Lists MTN Ghana's codes that start with what you typed |
+| `EQS` | Opens the stock screener |
+| `GC` | Opens the government yield curve. The instruments that `GC` finds (such as GCB) are listed below it |
+| `AUC` | Opens the T-bill and bond auctions |
+| `ECO` | Opens the economic calendar and policy rate |
 | anything else | Shows the instrument search results, as in the header search |
 
 Case and extra spaces don't matter. Use ↑/↓ to move, Tab to complete
@@ -27,15 +33,21 @@ exactly, Enter follows it. Otherwise Enter opens the highlighted row.
 |---|---|---|---|---|
 | `DES` | instrument | equity | Company description and figures | `/stock/{symbol}#description` |
 | `GP` | instrument | equity | Price chart with indicators | `/stock/{symbol}` |
+| `EQS` | screen | | Stock screener | `/screener` |
+| `GC` | screen | | Government yield curve | `/yield-curve` |
+| `AUC` | screen | | T-bill and bond auctions | `/auctions` |
+| `ECO` | screen | | Economic calendar and policy rate | `/calendar` |
 
 There are two kinds of code:
 
 - **instrument** codes follow a symbol (`<SYMBOL> <CODE>`). They apply
   only to their asset classes, so `<bond> DES` falls back to search,
   which opens the bond's own page.
-- **screen** codes stand alone (`<CODE>`). There are none yet. `EQS`
-  (screener), `GC` (yield curve), `AUC` (auctions), `ECO` (economic
-  calendar), `FXC` (FX) and `GCX` (commodities) will be added here.
+- **screen** codes stand alone (`<CODE>`), like `EQS` for the
+  screener. `FXC` (FX) and `GCX` (commodities) will be added here. Symbols are matched
+  whole, so `GC` opens the yield curve while `GCB` is still GCB Bank.
+  The bar lists matching instruments under the screen codes, so typing
+  a screen code never hides a symbol that starts with it.
 
 Planned instrument codes include `DCF` (once the DCF panel ships) and
 `NEWS` (once there is a headline feed). A code goes into the table only
